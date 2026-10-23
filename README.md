@@ -1,2 +1,2 @@
 # AVM
-android VM
+一个qemu，支持kvm加速的arm64架构系统使用的虚拟机，支持编译为apk为安卓手机使用，也支持给arm64架构的linux系统使用。主要功能是运行任意系统。
