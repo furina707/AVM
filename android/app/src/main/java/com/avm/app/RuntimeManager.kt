@@ -16,7 +16,7 @@ import org.tukaani.xz.XZInputStream
  *
  * Layout after extraction (all under context.filesDir/runtime):
  *   qemu-system-aarch64      (executable, PIE, interp /system/bin/linker64)
- *   lib/*.so                 (LD_LIBRARY_PATH target; overrides Termux RUNPATH)
+ *   lib/<soname>           (LD_LIBRARY_PATH target; overrides Termux RUNPATH)
  *   vmlinuz-lts              (default guest kernel)
  *   initramfs-lts            (default guest initramfs)
  *   MANIFEST.txt
