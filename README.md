@@ -1,5 +1,7 @@
 # AVM
 
+[![Build Android APK](https://github.com/furina707/AVM/actions/workflows/build-apk.yml/badge.svg)](https://github.com/furina707/AVM/actions/workflows/build-apk.yml)
+
 一个基于 **QEMU** 的 arm64 (AArch64) 虚拟机控制平面，支持 KVM 硬件加速，
 可编译为 Android APK 在手机上使用，也可作为命令行工具/静态库运行在
 arm64 Linux 上。主要功能是**运行任意操作系统**。
@@ -140,6 +142,21 @@ C JNI 桥（`avm_jni.c`）只做参数编组：`avm_vm_create` 返回句柄，�
 在 Kotlin 与 C 之间传递；`avm_vm_build_argv` / `avm_vm_describe` 采用
 「先 dry-run 取大小、再分配填充」的两阶段调用。所有业务逻辑都在 Zig 里。
 
+### GitHub Actions 自动构建 / 手机预览
+
+每次 push 到 `main` 都会由 [build-apk.yml](.github/workflows/build-apk.yml)
+自动从源码构建 `arm64-v8a` debug APK：CI 用 Zig 交叉编译 `libavm.so` → 用
+CMake 编 JNI 桥 → Gradle 打 APK，并上传为名为 `AVM-<sha>-arm64-v8a-debug.apk`
+的 artifact（保留 30 天，需登录 GitHub 才能下载）。
+
+**手机上看界面（最简单）**：在 Actions 的 run 页面下载 APK → 传到手机 →
+点击安装（需允许「安装未知应用」）→ 打开即可看到 Compose 控制面板。
+也可以直接 `adb install app-debug.apk`。
+
+> 注意：应用是**控制平面**，打开后能完整操作 UI、创建 VM、生成/查看 QEMU
+> 命令行；但要真正启动客户机，设备还需自备 `qemu-system-aarch64` 和
+> `/dev/kvm`（见下方「QEMU 依赖」）。仅预览界面不需要这些。
+
 ---
 
 ## C ABI 速览
@@ -200,18 +217,23 @@ qemu-system-aarch64 -machine virt,accel=kvm,gic-version=3 -cpu host \
 
 ## 已验证 / 限制
 
-已在 Windows (x86_64) 上用 Zig 0.17.0 验证：
+**本地（Windows x86_64, Zig 0.17.0）**：
 
-- `zig build` 产出 CLI + 静态/共享库 + 头文件；`zig build test` 全部通过；
+- `zig build` 产出 CLI + 静态/共享库 + 头文件；`zig build test` 13/13 通过；
 - C ABI 端到端测试（create / build_argv / describe / state / destroy / find_qemu）；
 - `aarch64-linux-musl`、`aarch64-linux-android` 交叉编译产出真实 ARM aarch64
-  ELF；Android `.so` 导出全部 17 个 `avm_*` 全局符号；
+  ELF；Android `.so` 导出全部 17 个 `avm_*` 全局符号、无 libc 依赖；
 - `zig build android` 自动把 `.so` 放入 jniLibs。
 
-**当前环境限制**：本机没有 Java / Gradle / Android SDK / NDK / QEMU，因此
-**没有实际打 APK，也没有启动过真实客户机**；Android 源码为静态核对（JNI
-名称/类型一一对应、Compose 代码完整）。在有 Android 工具链的机器上按
-`android/README.md` 即可构建。
+**GitHub Actions（ubuntu-latest）**：
+
+- 从源码完整构建并上传 `arm64-v8a` debug APK（约 9 MB）；APK 内含
+  `lib/arm64-v8a/libavm.so` + `libavm_jni.so`、`classes.dex`、`resources.arsc`；
+- CI 会先跑 `zig build test`，再 `zig build android`，最后 `gradle assembleDebug`。
+
+**仍然的限制**：本机没有 QEMU / `/dev/kvm`，因此**没有启动过真实客户机**；
+要运行任意系统，需在目标设备自备 `qemu-system-aarch64`、磁盘镜像/ISO、
+UEFI 固件与（KVM 加速时的）`/dev/kvm`。
 
 ---
 
