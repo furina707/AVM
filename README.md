@@ -251,11 +251,18 @@ qemu-system-aarch64 -machine virt,accel=kvm,gic-version=3 -cpu host \
 - CI 依次跑 `zig build test` → `zig build android` →
   `scripts/prepare-runtime.py`（git depth1 + 预编译运行时）→ `gradle assembleDebug`。
 
+**最终 APK 已校验**（run `43621397656`，66 MB）：
+
+- `lib/arm64-v8a/libavm.so` + `libavm_jni.so`；
+- `assets/runtime/runtime.tar.xz`（56.8 MB，74 个条目）：`qemu-system-aarch64`、
+  `vmlinuz-lts`、`initramfs-lts`、69 个依赖 `.so`；
+- `classes.dex` / `resources.arsc`。
+
 **仍然的限制**：本机没有连接安卓设备，因此**没有在真机上点过「一键启动」**；
 CI 只能验证 APK 打包正确、QEMU 运行时文件齐备（ELF 架构、DT_NEEDED 全部解析、
 DT_RUNPATH 可被 LD_LIBRARY_PATH 覆盖）。真机启动还取决于设备内核是否开放
 `/dev/kvm`（KVM）以及 SELinux 是否允许 App 执行私有目录内的 ELF；无 KVM 时
-自动回退 TCG。
+自动回退 TCG。若启动失败，`qemu.log` 会在 UI 里显示具体原因。
 
 ---
 
