@@ -23,6 +23,10 @@ import org.tukaani.xz.XZInputStream
  */
 object RuntimeManager {
 
+    // Kotlin source cannot contain a literal NUL escape (the Unicode
+    // preprocessor turns it into a real NUL byte). Use Char(0) instead.
+    private val NUL: Char = Char(0)
+
     private const val ASSET = "runtime/runtime.tar.xz"
     private const val DIR = "runtime"
     private const val MARKER = ".ready"
@@ -134,12 +138,12 @@ object RuntimeManager {
             // Two zero blocks mark end of archive.
             if (buf.all { it == 0.toByte() }) return
 
-            val name = String(buf, 0, 100).trimEnd('\u0000', ' ')
-            val sizeStr = String(buf, 124, 12).trimEnd('\u0000', ' ').trim()
+            val name = String(buf, 0, 100).trimEnd(NUL, ' ')
+            val sizeStr = String(buf, 124, 12).trimEnd(NUL, ' ').trim()
             val size = sizeStr.toLongOrNull(8) ?: 0L
             val type = buf[156]
-            val link = String(buf, 157, 100).trimEnd('\u0000', ' ')
-            val prefix = String(buf, 345, 155).trimEnd('\u0000', ' ')
+            val link = String(buf, 157, 100).trimEnd(NUL, ' ')
+            val prefix = String(buf, 345, 155).trimEnd(NUL, ' ')
             val effective = longName ?: (if (prefix.isNotEmpty()) "$prefix/$name" else name)
             longName = null
 
@@ -157,7 +161,7 @@ object RuntimeManager {
                 }
                 'L'.code.toByte() -> { // GNU long name
                     val data = readFully(input, size)
-                    longName = String(data).trimEnd('\u0000')
+                    longName = String(data).trimEnd(NUL)
                     skip(input, padding(size))
                 }
                 'x'.code.toByte(), 'g'.code.toByte(), 'K'.code.toByte() -> {
