@@ -1,0 +1,117 @@
+name: Build Android APK
+
+# Builds the AVM control-plane APK on every push / PR and on manual dispatch.
+# The APK is assembled entirely from source: the Zig core is cross-compiled to
+# an arm64-v8a libavm.so, then Gradle + CMake build the Compose app and JNI shim.
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+      - '.gitignore'
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  ZIG_VERSION: '0.17.0'
+  GRADLE_VERSION: '8.7'
+  JAVA_VERSION: '17'
+  ANDROID_COMPILE_SDK: '34'
+  ANDROID_BUILD_TOOLS: '34.0.0'
+  ANDROID_NDK_VERSION: '26.3.11579264'
+  ANDROID_CMAKE_VERSION: '3.22.1'
+  APK_DIR: android/app/build/outputs/apk/debug
+
+jobs:
+  build-apk:
+    name: Build arm64-v8a debug APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ---- Toolchains -----------------------------------------------------
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+          # Gradle dependency caching is handled by gradle/actions/setup-gradle
+          # below, so setup-java's own `cache: gradle` is intentionally omitted.
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        run: |
+          sdkmanager --install \
+            "platforms;android-${ANDROID_COMPILE_SDK}" \
+            "build-tools;${ANDROID_BUILD_TOOLS}" \
+            "platform-tools" \
+            "ndk;${ANDROID_NDK_VERSION}" \
+            "cmake;${ANDROID_CMAKE_VERSION}"
+          yes | sdkmanager --licenses > /dev/null || true
+
+      - name: Set up Zig ${{ env.ZIG_VERSION }}
+        uses: mlugg/setup-zig@v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+          mirror: 'https://pkg.machengine.org/zig'
+
+      - name: Set up Gradle ${{ env.GRADLE_VERSION }}
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: ${{ env.GRADLE_VERSION }}
+
+      # ---- Zig core: cross-compile libavm.so for Android ------------------
+      # `zig build android` compiles src/c_api.zig for aarch64-linux-android
+      # (no libc, matching the target) and writes the result straight into the
+      # app's jniLibs/arm64-v8a/ via UpdateSourceFiles.
+      - name: Build Zig core and run tests
+        run: |
+          zig version
+          zig build test
+          zig build android -Doptimize=ReleaseSafe
+          test -f android/app/src/main/jniLibs/arm64-v8a/libavm.so
+          file android/app/src/main/jniLibs/arm64-v8a/libavm.so
+          ls -lh android/app/src/main/jniLibs/arm64-v8a/libavm.so
+
+      # Gradle is provided by setup-gradle (on PATH), so no wrapper jar/script
+      # needs to be committed. `gradle` resolves the version catalog, downloads
+      # AGP/Kotlin/Compose deps, compiles the C JNI shim via CMake, links the
+      # prebuilt libavm.so, and packages the Compose UI into an APK.
+      - name: Assemble debug APK
+        working-directory: android
+        run: gradle assembleDebug --no-daemon --stacktrace
+
+      - name: Locate APK
+        id: apk
+        run: |
+          APK="$(find "${APK_DIR}" -name '*.apk' -type f | head -n1)"
+          if [ -z "$APK" ]; then
+            echo "No APK found under ${APK_DIR}" >&2
+            find android/app/build/outputs -maxdepth 4 -type f | head -50 >&2 || true
+            exit 1
+          fi
+          echo "path=$APK" >> "$GITHUB_OUTPUT"
+          echo "name=AVM-$(git rev-parse --short HEAD)-arm64-v8a-debug.apk" >> "$GITHUB_OUTPUT"
+          ls -lh "$APK"
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.apk.outputs.name }}
+          path: ${{ steps.apk.outputs.path }}
+          if-no-files-found: error
+          retention-days: 30

@@ -1,0 +1,29 @@
+# Zig build outputs
+zig-out/
+.zig-cache/
+zig-cache/
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dll
+*.dylib
+*.exe
+*.pdb
+*.ilk
+*.exp
+
+# The generated Android jniLibs/arm64-v8a/libavm.so is a build artifact, too:
+# it is produced by `zig build android` and intentionally NOT committed
+# (see android/README.md and android/app/src/main/jniLibs/arm64-v8a/README.md).
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# DeepSeek Harness session artifacts
+.dsh-ops/
