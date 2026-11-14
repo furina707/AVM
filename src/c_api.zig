@@ -125,6 +125,26 @@ pub export fn avm_vm_destroy(vm: ?*c.Vm) callconv(.c) void {
     if (fromOpaque(vm)) |v| v.destroy();
 }
 
+/// Set an environment variable for the QEMU child process. Used on Android to
+/// pass LD_LIBRARY_PATH pointing at the app-private lib dir (the bundled QEMU
+/// ELFs carry a Termux DT_RUNPATH that LD_LIBRARY_PATH overrides).
+pub export fn avm_vm_set_env(vm: ?*c.Vm, key: [*c]const u8, value: [*c]const u8) callconv(.c) c.status {
+    const v = fromOpaque(vm) orelse return c.ERR_INVALID_ARGUMENT;
+    if (key == null) return c.ERR_INVALID_ARGUMENT;
+    const k = std.mem.span(key);
+    const val: []const u8 = if (value == null) "" else std.mem.span(value);
+    v.setEnv(k, val) catch return c.ERR_OUT_OF_MEMORY;
+    return c.OK;
+}
+
+/// Redirect QEMU stdout/stderr to a log file created/truncated on start.
+pub export fn avm_vm_set_log_file(vm: ?*c.Vm, path: [*c]const u8) callconv(.c) c.status {
+    const v = fromOpaque(vm) orelse return c.ERR_INVALID_ARGUMENT;
+    if (path == null) return c.ERR_INVALID_ARGUMENT;
+    v.setLogFile(std.mem.span(path)) catch return c.ERR_OUT_OF_MEMORY;
+    return c.OK;
+}
+
 pub export fn avm_vm_start(vm: ?*c.Vm) callconv(.c) c.status {
     const v = fromOpaque(vm) orelse return c.ERR_INVALID_ARGUMENT;
     v.start() catch |err| return startErrStatus(err);

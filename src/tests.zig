@@ -263,6 +263,11 @@ test "C ABI create / build_argv / describe / state / destroy round trip" {
     try std.testing.expectEqual(c.STATE_STOPPED, c.avm_vm_state_get(vm));
     try std.testing.expectEqual(@as(c_int, 0), c.avm_vm_is_running(vm));
     try std.testing.expectEqual(@as(i32, 0), c.avm_vm_pid(vm));
+
+    // Env/log setters are no-ops on the config but must accept valid input.
+    try std.testing.expectEqual(c.OK, c.avm_vm_set_env(vm, "LD_LIBRARY_PATH", "/tmp/lib"));
+    try std.testing.expectEqual(c.OK, c.avm_vm_set_env(vm, "EMPTY", ""));
+    try std.testing.expectEqual(c.OK, c.avm_vm_set_log_file(vm, "/tmp/avm-test-qemu.log"));
 }
 
 test "C ABI rejects NULL handles and reports find_qemu status" {

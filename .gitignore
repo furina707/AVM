@@ -14,9 +14,12 @@ zig-cache/
 *.ilk
 *.exp
 
-# The generated Android jniLibs/arm64-v8a/libavm.so is a build artifact, too:
-# it is produced by `zig build android` and intentionally NOT committed
-# (see android/README.md and android/app/src/main/jniLibs/arm64-v8a/README.md).
+# Generated Android build artifacts (intentionally NOT committed):
+#   - libavm.so is produced by `zig build android`
+#   - runtime.tar.xz is produced by `scripts/prepare-runtime.py` in CI
+android/app/src/main/jniLibs/arm64-v8a/libavm.so
+android/app/src/main/assets/runtime/runtime.tar.xz
+.runtime-work/
 
 # Editor / OS
 .vscode/
@@ -27,3 +30,4 @@ Thumbs.db
 
 # DeepSeek Harness session artifacts
 .dsh-ops/
+*.apk

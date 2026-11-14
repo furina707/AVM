@@ -35,7 +35,7 @@ jobs:
   build-apk:
     name: Build arm64-v8a debug APK
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 60
 
     steps:
       - name: Checkout
@@ -95,6 +95,21 @@ jobs:
           test -f android/app/src/main/jniLibs/arm64-v8a/libavm.so
           file android/app/src/main/jniLibs/arm64-v8a/libavm.so
           ls -lh android/app/src/main/jniLibs/arm64-v8a/libavm.so
+
+      # ---- Default guest runtime (git depth 1 + prebuilt QEMU runtime) -----
+      # This is the DEFAULT build path: clone the Termux recipes with --depth 1,
+      # resolve the full .deb dependency closure, extract qemu-system-aarch64
+      # and its recursive DT_NEEDED .so set, and bundle a bootable Alpine
+      # aarch64 kernel + initramfs. Everything is packed into one
+      # runtime.tar.xz asset; the phone never compiles anything.
+      - name: Prepare default guest runtime
+        run: |
+          python3 --version
+          python3 scripts/prepare-runtime.py \
+            --out android/app/src/main/assets/runtime \
+            --work .runtime-work
+          ls -lh android/app/src/main/assets/runtime/
+          test -s android/app/src/main/assets/runtime/runtime.tar.xz
 
       # Gradle is provided by setup-gradle (on PATH), so no wrapper jar/script
       # needs to be committed. `gradle` resolves the version catalog, downloads

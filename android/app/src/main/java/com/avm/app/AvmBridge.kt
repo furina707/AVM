@@ -65,6 +65,8 @@ object AvmBridge {
         extraArgs: String
     ): Long
     external fun nativeDestroy(handle: Long)
+    external fun nativeSetEnv(handle: Long, key: String, value: String): Int
+    external fun nativeSetLogFile(handle: Long, path: String): Int
     external fun nativeBuildArgv(handle: Long): String
     external fun nativeDescribe(handle: Long): String
     external fun nativeStart(handle: Long): Int

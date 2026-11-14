@@ -10,10 +10,11 @@ arm64 Linux 上。主要功能是**运行任意操作系统**。
 - **界面：Jetpack Compose**（Android 客户端，Kotlin）
 - **ABI：稳定的 C ABI**（`include/avm.h`），可被 JNI / C / C++ / Python ctypes 调用
 
-> ⚠️ **重要**：AVM 本身**不模拟 CPU，也不附带 QEMU 二进制**。它是一个薄薄的
-> 「控制平面」：根据配置生成 `qemu-system-aarch64` 命令行、启动/停止/查询该
-> 外部进程、上报虚拟机状态。你必须自行提供 `qemu-system-aarch64`（以及 UEFI
-> 固件、磁盘镜像、ISO 等）。详见下方「QEMU 依赖」。
+AVM 是「控制平面 + 默认运行时」：Zig 核心生成 `qemu-system-aarch64` 命令行并
+启动/停止/查询该进程；**CI 默认把一套可直接在 Android 上运行的 QEMU 运行时
+连同最小可启动的 Alpine aarch64 客户机一起打进 APK**，手机端一键启动，不需要
+Termux、不需要在手机上编译。你也可以替换成自己的 QEMU / 磁盘镜像 / ISO。
+详见下方「默认客户机运行时」与「QEMU 依赖」。
 
 ---
 
@@ -31,13 +32,17 @@ AVM/
 │   ├── c_api.zig              # C ABI 实现（pub export fn ...）
 │   ├── main.zig               # avm 命令行工具
 │   └── tests.zig              # 单元测试 + C ABI 集成测试
+├── scripts/prepare-runtime.py # CI：git depth1 + 预编译 QEMU 运行时打包
 ├── build.zig / build.zig.zon  # Zig 0.17 构建图
 ├── android/                   # Jetpack Compose 客户端（Gradle + JNI shim）
 │   ├── app/src/main/java/.../MainActivity.kt   # Compose UI
 │   ├── app/src/main/java/.../AvmBridge.kt      # Kotlin external 声明
+│   ├── app/src/main/java/.../RuntimeManager.kt # 解压/管理内置 QEMU 运行时
+│   ├── app/src/main/java/.../GuestLauncher.kt  # 一键启动默认客户机
 │   ├── app/src/main/cpp/avm_jni.c             # C JNI 桥
 │   ├── app/src/main/cpp/CMakeLists.txt         # 链接预编译 libavm.so
-│   └── app/src/main/jniLibs/arm64-v8a/        # libavm.so 放置处
+│   ├── app/src/main/jniLibs/arm64-v8a/        # libavm.so 放置处
+│   └── app/src/main/assets/runtime/            # runtime.tar.xz（CI 生成）
 └── README.md / LICENSE
 ```
 
@@ -153,9 +158,22 @@ CMake 编 JNI 桥 → Gradle 打 APK，并上传为名为 `AVM-<sha>-arm64-v8a-d
 点击安装（需允许「安装未知应用」）→ 打开即可看到 Compose 控制面板。
 也可以直接 `adb install app-debug.apk`。
 
-> 注意：应用是**控制平面**，打开后能完整操作 UI、创建 VM、生成/查看 QEMU
-> 命令行；但要真正启动客户机，设备还需自备 `qemu-system-aarch64` 和
-> `/dev/kvm`（见下方「QEMU 依赖」）。仅预览界面不需要这些。
+**真正启动客户机（默认路径）**：CI 会用
+[`scripts/prepare-runtime.py`](scripts/prepare-runtime.py) 从源码准备运行时 ——
+`git clone --depth 1` Termux 的 QEMU 配方、解析完整依赖闭包、抽取
+`qemu-system-aarch64` 与其递归 `DT_NEEDED` 的 69 个 `.so`，再下载 Alpine
+aarch64 netboot 内核 + initramfs，打包成单个 `runtime.tar.xz`（约 57 MB）放进
+APK 的 assets。手机**不编译任何东西**：App 首次启动把 tar.xz 解压到私有目录、
+`chmod +x`，通过 `avm_vm_set_env` 设置 `LD_LIBRARY_PATH`（覆盖 ELF 里烘焙的
+Termux `DT_RUNPATH`），把 QEMU stdout/stderr 重定向到 `qemu.log`，然后直接
+`Runtime.exec` 启动客户机。
+
+在 UI 里点「一键启动客户机」即可：有 `/dev/kvm` 走 KVM 加速，没有则自动回退
+TCG 软件模拟；串口在 `tcp://127.0.0.1:4444`，VNC 在 `:0`，启动日志实时显示
+在状态卡片里。
+
+> 默认的 Alpine 只加载内核 + initramfs（无持久磁盘）；要装完整系统，把磁盘
+> 路径、ISO、UEFI 固件等填进表单并用手动「创建VM / 启动」即可（见「QEMU 依赖」）。
 
 ---
 
@@ -227,13 +245,17 @@ qemu-system-aarch64 -machine virt,accel=kvm,gic-version=3 -cpu host \
 
 **GitHub Actions（ubuntu-latest）**：
 
-- 从源码完整构建并上传 `arm64-v8a` debug APK（约 9 MB）；APK 内含
-  `lib/arm64-v8a/libavm.so` + `libavm_jni.so`、`classes.dex`、`resources.arsc`；
-- CI 会先跑 `zig build test`，再 `zig build android`，最后 `gradle assembleDebug`。
+- 从源码完整构建并上传 `arm64-v8a` debug APK；APK 内含
+  `lib/arm64-v8a/libavm.so` + `libavm_jni.so`、`classes.dex`、`resources.arsc`，
+  以及 `assets/runtime/runtime.tar.xz`（QEMU + 69 个依赖库 + Alpine 内核/initramfs）；
+- CI 依次跑 `zig build test` → `zig build android` →
+  `scripts/prepare-runtime.py`（git depth1 + 预编译运行时）→ `gradle assembleDebug`。
 
-**仍然的限制**：本机没有 QEMU / `/dev/kvm`，因此**没有启动过真实客户机**；
-要运行任意系统，需在目标设备自备 `qemu-system-aarch64`、磁盘镜像/ISO、
-UEFI 固件与（KVM 加速时的）`/dev/kvm`。
+**仍然的限制**：本机没有连接安卓设备，因此**没有在真机上点过「一键启动」**；
+CI 只能验证 APK 打包正确、QEMU 运行时文件齐备（ELF 架构、DT_NEEDED 全部解析、
+DT_RUNPATH 可被 LD_LIBRARY_PATH 覆盖）。真机启动还取决于设备内核是否开放
+`/dev/kvm`（KVM）以及 SELinux 是否允许 App 执行私有目录内的 ELF；无 KVM 时
+自动回退 TCG。
 
 ---
 

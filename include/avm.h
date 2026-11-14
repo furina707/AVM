@@ -156,6 +156,17 @@ AVM_API void avm_config_init(avm_vm_config *cfg);
 AVM_API avm_status avm_vm_create(const avm_vm_config *cfg, avm_vm **out_vm);
 AVM_API void avm_vm_destroy(avm_vm *vm);
 
+/* Set an environment variable for the QEMU child process (e.g.
+ * "LD_LIBRARY_PATH"). Must be called before avm_vm_start. Passing an empty
+ * value removes the variable. The VM copies both strings. Returns AVM_OK,
+ * AVM_ERR_INVALID_ARGUMENT or AVM_ERR_OUT_OF_MEMORY. */
+AVM_API avm_status avm_vm_set_env(avm_vm *vm, const char *key, const char *value);
+
+/* Redirect QEMU stdout/stderr to a log file (created/truncated) instead of
+ * the parent's descriptors. Useful on Android where inherited stdout is
+ * discarded. Call before avm_vm_start. NULL disables redirection. */
+AVM_API avm_status avm_vm_set_log_file(avm_vm *vm, const char *path);
+
 /* Returns number of argv entries (excluding NULL) written to buf, or
  * negative avm_status on error. If buf/out_len is NULL the call only
  * computes the required count (dry run). */

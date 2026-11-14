@@ -36,10 +36,18 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import androidx.compose.runtime.rememberCoroutineScope
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -101,9 +109,15 @@ fun AvmScreen() {
     val log = remember { mutableStateListOf<String>() }
     var showCommandDialog by remember { mutableStateOf(false) }
     var commandText by remember { mutableStateOf("") }
+    var runtimeReady by remember { mutableStateOf(false) }
+    var guestRunning by remember { mutableStateOf(false) }
+    var guestLog by remember { mutableStateOf("") }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
     fun log(msg: String) {
         log.add(msg)
+        if (log.size > 40) log.removeAt(0)
     }
 
     fun refreshStatus() {
@@ -125,6 +139,31 @@ fun AvmScreen() {
     }
 
     val hasVm = handle != 0L
+
+    // Extract the bundled QEMU runtime once, off the main thread.
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) {
+            val r = GuestLauncher.prepare(context)
+            runtimeReady = r.ok
+            log(if (r.ok) "运行时: ${r.message}" else "运行时: ${r.message}")
+        }
+    }
+
+    // Poll QEMU's log file + VM state continuously (cheap: reads a small file).
+    LaunchedEffect(Unit) {
+        while (isActive) {
+            val g = withContext(Dispatchers.IO) {
+                GuestLauncher.readLog(40) to GuestLauncher.isRunning()
+            }
+            guestLog = g.first
+            guestRunning = g.second
+            if (handle != 0L) {
+                stateLabel = stateLabelOf(AvmBridge.nativeState(handle))
+                pid = AvmBridge.nativePid(handle)
+            }
+            delay(1500)
+        }
+    }
 
     val accels = listOf(
         "HOST" to AvmBridge.AVM_ACCEL_HOST,
@@ -222,6 +261,67 @@ fun AvmScreen() {
                     selected = boot == value,
                     onClick = { boot = value },
                     label = { Text(label) }
+                )
+            }
+        }
+        Spacer(Modifier.height(16.dp))
+
+        // ---- default guest (bundled runtime) ----
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(12.dp)) {
+                Text("默认客户机 · Alpine aarch64", style = MaterialTheme.typography.titleSmall)
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "APK 内置 QEMU + 依赖库 + 内核/initramfs（CI 由 git depth1 + 预编译运行时生成），" +
+                        "无需 Termux、无需手机编译。" +
+                        if (RuntimeManager.hasKvm()) " 检测：KVM 可用。" else " 检测：无 KVM，将用 TCG 软件模拟。",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = {
+                            scope.launch {
+                                val r = withContext(Dispatchers.IO) {
+                                    GuestLauncher.start(
+                                        context,
+                                        smp.toIntOrNull() ?: 1,
+                                        memoryMb.toLongOrNull() ?: 1024L
+                                    )
+                                }
+                                log("默认客户机: ${r.message}")
+                                if (!r.ok) log(r.message)
+                                guestLog = GuestLauncher.readLog(40)
+                            }
+                        },
+                        enabled = runtimeReady && !guestRunning
+                    ) {
+                        Text("一键启动客户机")
+                    }
+                    Button(
+                        onClick = {
+                            scope.launch {
+                                withContext(Dispatchers.IO) { GuestLauncher.stop() }
+                                log("默认客户机已停止")
+                                guestLog = GuestLauncher.readLog(40)
+                            }
+                        },
+                        enabled = guestRunning
+                    ) {
+                        Text("停止客户机")
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                Text("QEMU 启动日志 (qemu.log)：", style = MaterialTheme.typography.labelMedium)
+                Text(
+                    if (guestLog.isBlank()) "（暂无输出）" else guestLog,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.heightIn(max = 160.dp)
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "连接：串口 tcp://127.0.0.1:4444，VNC :0（用支持 VNC/串口的客户端）",
+                    style = MaterialTheme.typography.bodySmall
                 )
             }
         }

@@ -65,6 +65,9 @@ dependencies {
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
+    // XZ decompression for the runtime.tar.xz asset (QEMU + libs + guest image)
+    implementation(libs.org.tukaani.xz)
+    implementation(libs.kotlinx.coroutines.android)
     debugImplementation(libs.androidx.compose.ui.tooling)
     testImplementation(libs.junit)
 }

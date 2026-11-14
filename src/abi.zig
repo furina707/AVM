@@ -113,6 +113,8 @@ pub extern fn avm_version() [*:0]const u8;
 pub extern fn avm_config_init(cfg: *VmConfig) void;
 pub extern fn avm_vm_create(cfg: [*c]const VmConfig, out_vm: [*c]?*Vm) status;
 pub extern fn avm_vm_destroy(vm: ?*Vm) void;
+pub extern fn avm_vm_set_env(vm: ?*Vm, key: [*c]const u8, value: [*c]const u8) status;
+pub extern fn avm_vm_set_log_file(vm: ?*Vm, path: [*c]const u8) status;
 pub extern fn avm_vm_build_argv(vm: ?*Vm, buf: [*c][*c]u8, out_len: [*c]u32) c_int;
 pub extern fn avm_vm_start(vm: ?*Vm) status;
 pub extern fn avm_vm_stop(vm: ?*Vm, force: c_int) status;

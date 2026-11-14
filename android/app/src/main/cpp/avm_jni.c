@@ -4,6 +4,7 @@
  */
 #include <jni.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "avm.h"
@@ -154,6 +155,36 @@ Java_com_avm_app_AvmBridge_nativeDestroy(JNIEnv *env, jclass clazz, jlong handle
     if (vm != NULL) {
         avm_vm_destroy(vm);
     }
+}
+
+/* ---- 5b. nativeSetEnv(Long, String, String): Int ---- */
+JNIEXPORT jint JNICALL
+Java_com_avm_app_AvmBridge_nativeSetEnv(JNIEnv *env, jclass clazz, jlong handle,
+                                        jstring jKey, jstring jValue) {
+    (void)clazz;
+    avm_vm *vm = vm_of(handle);
+    if (vm == NULL) return (jint)AVM_ERR_INVALID_ARGUMENT;
+    utf_ref k, v;
+    const char *key = utf_get(&k, env, jKey);
+    const char *value = utf_get(&v, env, jValue);
+    avm_status st = avm_vm_set_env(vm, key, value);
+    utf_release(&k);
+    utf_release(&v);
+    return (jint)st;
+}
+
+/* ---- 5c. nativeSetLogFile(Long, String): Int ---- */
+JNIEXPORT jint JNICALL
+Java_com_avm_app_AvmBridge_nativeSetLogFile(JNIEnv *env, jclass clazz, jlong handle,
+                                            jstring jPath) {
+    (void)clazz;
+    avm_vm *vm = vm_of(handle);
+    if (vm == NULL) return (jint)AVM_ERR_INVALID_ARGUMENT;
+    utf_ref p;
+    const char *path = utf_get(&p, env, jPath);
+    avm_status st = avm_vm_set_log_file(vm, path);
+    utf_release(&p);
+    return (jint)st;
 }
 
 /* ---- 6. nativeBuildArgv(Long): String ----

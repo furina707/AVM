@@ -68,9 +68,24 @@ CMake 会编译 `app/src/main/cpp/avm_jni.c` 为 `libavm_jni.so`，并把
 CMake compiles `app/src/main/cpp/avm_jni.c` into `libavm_jni.so` and packages
 the `.so` files from `jniLibs/arm64-v8a/` into the APK.
 
-## 4. 在设备上提供 QEMU / Provide QEMU on the device
+## 4. 一键启动默认客户机 / Launch the default guest
 
-把 QEMU 二进制推送到设备，例如：
+**从 CI 构建的 APK 已经内置完整运行时**，无需 Termux、无需在手机上编译：
+
+- `assets/runtime/runtime.tar.xz` 由根目录 `scripts/prepare-runtime.py` 在 CI 生成：
+  `git clone --depth 1` Termux 配方 → 解析 94 个依赖包 → 抽取
+  `qemu-system-aarch64` + 递归 `DT_NEEDED` 的 69 个 `.so` → 下载 Alpine aarch64
+  netboot 内核 + initramfs。
+- App 首次启动把它解压到私有 `filesDir`，`chmod +x`，设置 `LD_LIBRARY_PATH`
+  （覆盖 ELF 里烘焙的 Termux `DT_RUNPATH`），把 QEMU 输出重定向到 `qemu.log`。
+
+打开应用后点「一键启动客户机」即可：有 `/dev/kvm` 用 KVM，否则自动回退 TCG；
+串口 `tcp://127.0.0.1:4444`，VNC `:0`，启动日志实时显示。
+
+### （可选）手动提供 QEMU / Manually provide QEMU
+
+若是你本地手工构建的 APK（没跑 prepare-runtime.py），UI 会提示「运行时缺失」，
+此时才需要自己准备 QEMU：
 
 ```sh
 adb push qemu-system-aarch64 /data/local/tmp/qemu-system-aarch64
@@ -78,15 +93,8 @@ adb shell chmod +x /data/local/tmp/qemu-system-aarch64
 ```
 
 然后在应用里把 "QEMU 路径" 填为 `/data/local/tmp/qemu-system-aarch64`，
-或点击 "自动查找" 让 `avm_find_qemu()` 尝试定位。
-
-```sh
-adb push qemu-system-aarch64 /data/local/tmp/qemu-system-aarch64
-adb shell chmod +x /data/local/tmp/qemu-system-aarch64
-```
-
-Set the "QEMU 路径" field to `/data/local/tmp/qemu-system-aarch64`, or tap
-"自动查找" to let `avm_find_qemu()` try to locate it.
+或点击 "自动查找" 让 `avm_find_qemu()` 尝试定位。Push the binary, chmod +x,
+then set the "QEMU 路径" field (or tap 自动查找).
 
 ## 5. 加速 / Acceleration
 

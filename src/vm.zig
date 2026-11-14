@@ -34,6 +34,12 @@ pub const Vm = struct {
     pid: i32 = 0,
     /// Exit code of the last `wait()`, exposed through `avm_vm_wait`.
     last_exit_code: u8 = 0,
+    /// Environment passed to the QEMU child (LD_LIBRARY_PATH etc.). Owned by
+    /// the VM's arena; never used on Windows where SpawnOptions uses a block.
+    envmap: ?std.process.Environ.Map = null,
+    /// Optional log file whose handle is inherited by QEMU stdout/stderr.
+    log_path: ?[]const u8 = null,
+    log_file: ?std.Io.File = null,
 
     /// Create a VM from a native owned Config, taking ownership of its arena.
     /// `arena` is stored by value; its backing allocator is used for destroy.
@@ -53,6 +59,11 @@ pub const Vm = struct {
         if (self.child != null) {
             self.stop();
         }
+        if (self.log_file) |f| {
+            f.close(self.io());
+            self.log_file = null;
+        }
+        if (self.envmap) |*m| m.deinit();
         self.threaded.deinit();
         self.arena.deinit();
         self.backing_allocator.destroy(self);
@@ -81,6 +92,33 @@ pub const Vm = struct {
         return try qa.buildArgv(self.arena.allocator(), &self.config, qemu);
     }
 
+    /// Set an environment variable for the QEMU child. Strings are copied
+    /// into the VM arena. An empty value removes the key.
+    pub fn setEnv(self: *Vm, key: []const u8, value: []const u8) !void {
+        const a = self.arena.allocator();
+        if (self.envmap == null) {
+            self.envmap = std.process.Environ.Map.init(a);
+        }
+        var map = &self.envmap.?;
+        if (value.len == 0) {
+            _ = map.swapRemove(key);
+            return;
+        }
+        const k = try a.dupe(u8, key);
+        const v = try a.dupe(u8, value);
+        try map.put(k, v);
+    }
+
+    /// Redirect QEMU stdout/stderr into a log file (created/truncated on
+    /// start). The handle stays open in the parent until stop/wait.
+    pub fn setLogFile(self: *Vm, path: []const u8) !void {
+        if (self.log_file) |f| {
+            f.close(self.io());
+            self.log_file = null;
+        }
+        self.log_path = try self.arena.allocator().dupe(u8, path);
+    }
+
     /// Start QEMU.
     pub fn start(self: *Vm) !void {
         if (self.child != null) return error.AlreadyRunning;
@@ -92,13 +130,35 @@ pub const Vm = struct {
         }
 
         const argv = try self.buildArgv();
+
+        // Open the log file (if configured) and pass its handle to the child.
+        var stdout_mode: std.process.SpawnOptions.StdIo = .inherit;
+        var stderr_mode: std.process.SpawnOptions.StdIo = .inherit;
+        if (self.log_path) |p| {
+            const f = try std.Io.Dir.createFile(
+                std.Io.Dir.cwd(),
+                self.io(),
+                p,
+                .{ .truncate = true, .read = false },
+            );
+            self.log_file = f;
+            stdout_mode = .{ .file = f };
+            stderr_mode = .{ .file = f };
+        }
+
         const child = std.process.spawn(self.io(), .{
             .argv = argv,
             .stdin = .ignore,
-            .stdout = .inherit,
-            .stderr = .inherit,
+            .stdout = stdout_mode,
+            .stderr = stderr_mode,
+            // Explicit env map (LD_LIBRARY_PATH) instead of the empty default.
+            .environ_map = if (self.envmap) |*m| m else null,
         }) catch |err| {
             self.state = c.STATE_ERROR;
+            if (self.log_file) |f| {
+                f.close(self.io());
+                self.log_file = null;
+            }
             return err;
         };
 
@@ -114,6 +174,10 @@ pub const Vm = struct {
             self.child = null;
         }
         self.pid = 0;
+        if (self.log_file) |f| {
+            f.close(self.io());
+            self.log_file = null;
+        }
         if (self.state != c.STATE_ERROR) self.state = c.STATE_STOPPED;
     }
 
@@ -128,6 +192,10 @@ pub const Vm = struct {
             };
             self.child = null;
             self.pid = 0;
+            if (self.log_file) |f| {
+                f.close(self.io());
+                self.log_file = null;
+            }
             self.last_exit_code = switch (term) {
                 .exited => |code| code,
                 else => 1,
